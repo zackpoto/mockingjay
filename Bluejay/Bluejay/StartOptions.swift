@@ -39,5 +39,5 @@ public enum StartMode {
     /// Start Bluejay using a new CBCentralManager.
     case new(StartOptions)
     /// Start Bluejay using an existing CBCentralManager.
-    case use(manager: CBCentralManager, peripheral: CBPeripheral?)
+    case use(manager: CBCentralManager, peripherals: [CBPeripheral])
 }

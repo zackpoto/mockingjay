@@ -28,6 +28,7 @@ public struct PeripheralIdentifier {
     }
 }
 
+/// Overload the '==' operator
 extension PeripheralIdentifier: Hashable {
     public static func == (lhs: PeripheralIdentifier, rhs: PeripheralIdentifier) -> Bool {
         return lhs.uuid == rhs.uuid

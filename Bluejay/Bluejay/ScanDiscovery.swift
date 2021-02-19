@@ -19,4 +19,19 @@ public struct ScanDiscovery {
 
     /// The signal strength of the peripheral discovered.
     public let rssi: Int
+    
+    /// Parse through the advertising packet of the discovered peripheral then extract, decode, and return the device's serial number
+    public func getSerialNum() -> String {
+        if let manufacturerData = advertisementPacket["kCBAdvDataManufacturerData"] as? Data {
+            if manufacturerData.count >= 2 {
+                let data_range:Range<Int> = 2..<10
+                let data = manufacturerData.subdata(in: data_range)
+                let serialNum = String(data: data, encoding:.utf8) //54
+                if serialNum != nil {
+                    return serialNum!
+                }
+            }
+        }
+        return "UnknownAhh"
+    }
 }

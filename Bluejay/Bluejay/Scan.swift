@@ -138,6 +138,16 @@ class Scan: Queueable {
                 peripheralIdentifier: peripheralIdentifier,
                 advertisementPacket: advertisementData,
                 rssi: rssi.intValue)
+            
+//            if let manufacturerData = newDiscovery.advertisementPacket["kCBAdvDataManufacturerData"] as? Data {
+//                assert(manufacturerData.count >= 2)
+//                let serialNum:Range<Int> = 2..<10
+//                let data = manufacturerData.subdata(in: serialNum)
+//                let data_str = String(data: data, encoding:.utf8) //54
+//                if data_str != nil {
+//                    print("Serial Number: \(data_str!)")
+//                }
+//            }
 
             // Ignore discovery if it is blacklisted.
             if blacklist.contains(where: { blacklistedDiscovery -> Bool in
@@ -161,7 +171,7 @@ class Scan: Queueable {
                 existingDiscovery.peripheralIdentifier == peripheralIdentifier
             }) {
                 let existingDiscovery = discoveries[indexOfExistingDiscovery]
-
+                
                 // Throttle discovery by ignoring discovery if the change of RSSI is insignificant.
                 if abs(existingDiscovery.rssi - rssi.intValue) < throttleRSSIDelta {
                     return

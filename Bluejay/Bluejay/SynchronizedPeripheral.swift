@@ -137,17 +137,16 @@ public class SynchronizedPeripheral {
             }
         }
 
-        let waitResult: DispatchTimeoutResult
         if case let .seconds(timeoutInterval) = timeout {
-            waitResult = sem.wait(timeout: .now() + DispatchTimeInterval.seconds(Int(timeoutInterval)))
+            _ = sem.wait(timeout: .now() + DispatchTimeInterval.seconds(Int(timeoutInterval)))
         } else {
-            waitResult = sem.wait(timeout: .distantFuture)
+            _ = sem.wait(timeout: .distantFuture)
         }
 
         if let error = error {
             backupTermination = nil
             throw error
-        } else if waitResult == .timedOut || listenResult == nil {
+        } else if listenResult == nil {
             backupTermination = nil
 
             if self.parent.isListening(to: characteristicIdentifier) && self.bluetoothAvailable {
@@ -329,12 +328,12 @@ public class SynchronizedPeripheral {
 
         }
 
-        let waitResult = sem.wait(timeout: timeoutInSeconds == 0 ? .distantFuture : .now() + .seconds(timeoutInSeconds))
+        _ = sem.wait(timeout: timeoutInSeconds == 0 ? .distantFuture : .now() + .seconds(timeoutInSeconds))
 
         if let error = error {
             backupTermination = nil
             throw error
-        } else if waitResult == .timedOut || listenResult == nil {
+        } else if listenResult == nil {
             backupTermination = nil
 
             if self.parent.isListening(to: charToListenTo) && self.bluetoothAvailable {
@@ -384,8 +383,6 @@ public class SynchronizedPeripheral {
                         } catch {
                             writeAndAssembleError = error
                         }
-                    } else if assembledData.count > expectedLength {
-                        writeAndAssembleError = BluejayError.tooMuchData(expected: expectedLength, received: assembledData)
                     } else {
                         self.debugLog("Need to continue to assemble data.")
                     }
@@ -425,12 +422,12 @@ public class SynchronizedPeripheral {
             }
         }
 
-        let waitResult = sem.wait(timeout: timeoutInSeconds == 0 ? .distantFuture : .now() + .seconds(timeoutInSeconds))
+        _ = sem.wait(timeout: timeoutInSeconds == 0 ? .distantFuture : .now() + .seconds(timeoutInSeconds))
 
         if let error = writeAndAssembleError {
             backupTermination = nil
             throw error
-        } else if waitResult == .timedOut || listenResult == nil {
+        } else if listenResult == nil {
             backupTermination = nil
 
             if self.parent.isListening(to: charToListenTo) && self.bluetoothAvailable {

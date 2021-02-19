@@ -30,6 +30,9 @@ public protocol ConnectionObserver: class {
 
     /// Called whenever a peripheral is disconnected.
     func disconnected(from peripheral: PeripheralIdentifier)
+    
+    /// Called whenever a device if unpaired or "forgotten"
+    func unpaired(from peripheral: PeripheralIdentifier)
 }
 
 /// Slightly less gross way to make the ConnectionObserver protocol's functions optional.
@@ -37,6 +40,7 @@ extension ConnectionObserver {
     public func bluetoothAvailable(_ available: Bool) {}
     public func connected(to peripheral: PeripheralIdentifier) {}
     public func disconnected(from peripheral: PeripheralIdentifier) {}
+    public func unpaired(from peripheral: PeripheralIdentifier) {}
 }
 
 /// Allows creating weak references to ConnectionObserver objects, so that Bluejay does not keep strong references to observers and prevent them from being released in memory.

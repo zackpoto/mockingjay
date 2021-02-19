@@ -66,8 +66,6 @@ public enum BluejayError {
     case multipleListenTrapped
     /// The original listen declared that it can be replaced by a new listen.
     case multipleListenReplaced
-    /// An operation expecting a certain amount of data (i.e. writeAndAssemble received more than expected)
-    case tooMuchData(expected: Int, received: Data)
 }
 
 extension BluejayError: LocalizedError {
@@ -133,8 +131,6 @@ extension BluejayError: LocalizedError {
             return "The current listen cannot be installed because an existing listen on the same characteristic is configured to trap"
         case .multipleListenReplaced:
             return "The current listen has been replaced by a newer listen on the same characteristic"
-        case .tooMuchData(let expected, let received):
-            return "More data than expected was received from the device (expected: \(expected), got: \(received.count))"
         }
     }
 }
@@ -175,7 +171,6 @@ extension BluejayError: CustomNSError {
         case .startupBackgroundTaskExpired: return 26
         case .multipleListenTrapped: return 27
         case .multipleListenReplaced: return 28
-        case .tooMuchData: return 29
         }
     }
 

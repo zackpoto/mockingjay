@@ -37,11 +37,11 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
     /// List of weak references to objects interested in receiving notifications on log file changes.
     private var logObservers: [WeakLogObserver] = []
 
-    /// Reference to a peripheral that is still connecting. If this is nil, then the peripheral should either be disconnected or connected. This is used to help determine the state of the peripheral's connection.
+    /// Reference to a peripheral that is still connecting. If this is nil, then the peripheral should either be disconnected or connected. This is used to help determine the state of the peripheral's connection. Only 1 peripheral can be connecting at a time. (MAYBE)
     private var connectingPeripheral: Peripheral?
 
-    /// Reference to a peripheral that is connected. If this is nil, then the peripheral should either be disconnected or still connecting. This is used to help determine the state of the peripheral's connection.
-    private var connectedPeripheral: Peripheral?
+    /// Reference to peripherals that are connected. If this is empty, then the peripherals should be disconnected or still connecting.
+    private var connectedPeripherals: [Peripheral] = []
 
     /// The previous connection timeout used.
     private var previousConnectionTimeout: Timeout?
@@ -88,24 +88,24 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
     private var disconnectedPeripheralAtRestoration: Peripheral?
 
     /// Convenient accessor to app document directory.
-    private var documentUrl: URL? {
-        do {
-            return try FileManager.default.url(
-                for: .documentDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true)
-        } catch {
-            return nil
-        }
-    }
+//    private var documentUrl: URL? {
+//        do {
+//            return try FileManager.default.url(
+//                for: .documentDirectory,
+//                in: .userDomainMask,
+//                appropriateFor: nil,
+//                create: true)
+//        } catch {
+//            return nil
+//        }
+//    }
 
-    /// File name for the log file.
-    private let logFileName = "bluejay_debug.txt"
-
-    /// Source and descriptor for setting up the monitoring of changes in the log file.
-    private var logFileMonitorSource: DispatchSourceFileSystemObject?
-    private var logFileDescriptor: CInt = 0
+//    /// File name for the log file.
+//    private let logFileName = "bluejay_debug.txt"
+//
+//    /// Source and descriptor for setting up the monitoring of changes in the log file.
+//    private var logFileMonitorSource: DispatchSourceFileSystemObject?
+//    private var logFileDescriptor: CInt = 0
 
     // MARK: - Public Properties
 
@@ -133,9 +133,29 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         return connectingPeripheral != nil
     }
 
-    /// Allows checking whether Bluejay is currently connected to a peripheral.
+    /// Allows checking whether Bluejay is currently connected to any peripheral.
     public var isConnected: Bool {
-        return connectedPeripheral != nil
+        return !connectedPeripherals.isEmpty
+    }
+    
+    /// Allows checking whether Bluejay is currently connected to a specific peripheral.
+    public func isConnectedTo(toPeripheral withID: UUID) -> Bool {
+        for peripheral in connectedPeripherals {
+            if peripheral.cbPeripheral.identifier == withID {
+                return true
+            }
+        }
+        return false
+    }
+    
+    private func peripheralForIdentifier(forIdentifier identifier: PeripheralIdentifier) -> Peripheral? {
+        if let indexOfPeripheral = connectedPeripherals.firstIndex(where: { peripheral -> Bool in
+            peripheral.identifier == identifier
+        }) {
+            return connectedPeripherals[indexOfPeripheral]
+        } else {
+            return nil
+        }
     }
 
     /// Allows checking whether Bluejay is currently disconnecting from a peripheral.
@@ -162,14 +182,6 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
     public var isBackgroundRestorationEnabled: Bool {
         return restoreIdentifier != nil
     }
-
-    /// Enables disconnection errors or arguments to "cancelEverything" also being broadcast to active listeners, to allow them to perform cleanup or shutdown
-    /// operations.
-    ///
-    /// Note: Currently defaults to false, to match original behaviour, because this could be quite disruptive to code that was written assuming this isn't true.
-    /// Arguably should default to true, since there are some situations (such listens in background tasks without timeouts) where this is required for correct
-    /// behaviour, and it may change eventually.
-    public var broadcastErrorsToListeners: Bool = false
 
     // MARK: - Logging
 
@@ -265,17 +277,18 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
             )
 
             debugLog("CBCentralManager initialized.")
-        case .use(let manager, let peripheral):
+        case .use(let manager, let peripherals):
             cbCentralManager = manager
-
-            if let peripheral = peripheral {
-                connectedPeripheral = Peripheral(delegate: self, cbPeripheral: peripheral, bluejay: self)
+            
+            for peripheral in peripherals {
+                let connectedPeripheral = Peripheral(delegate: self, cbPeripheral: peripheral, bluejay: self)
                 peripheral.delegate = connectedPeripheral
+                connectedPeripherals.append(connectedPeripheral)
             }
-
+            
             queue.start()
         }
-
+        
         debugLog("Bluejay with UUID: \(uuid.uuidString) started.")
     }
 
@@ -285,7 +298,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
      - Returns: Returns a CBCentralManager and possibly a CBPeripheral as well if there was one connected at the time of this call.
      - Warning: Will crash if Bluejay has not been instantiated properly or if Bluejay is still connecting.
     */
-    public func stopAndExtractBluetoothState() -> (manager: CBCentralManager, peripheral: CBPeripheral?) {
+    public func stopAndExtractBluetoothState() -> (manager: CBCentralManager, peripherals: [CBPeripheral]) {
         precondition(cbCentralManager != nil)
         precondition(!isConnecting)
 
@@ -303,8 +316,10 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
         connectionObservers.removeAll()
         disconnectHandler = nil
+        
+        let connnectedCBs = connectedPeripherals.map{ $0.cbPeripheral! }
 
-        return (manager: cbCentralManager, peripheral: connectedPeripheral?.cbPeripheral)
+        return (manager: cbCentralManager, peripherals: connnectedCBs)
     }
 
     /// Check to see whether the "Uses Bluetooth LE accessories" capability is turned on in the residing Xcode project.
@@ -345,9 +360,6 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
             debugLog("Should auto-reconnect: \(shouldAutoReconnect)")
         }
 
-        if broadcastErrorsToListeners {
-            connectedPeripheral?.broadcastErrorToListeners(error)
-        }
         queue.cancelAll(error: error)
 
         if isConnected && shouldDisconnect {
@@ -358,7 +370,9 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
             debugLog("Should auto-reconnect: \(shouldAutoReconnect)")
 
-            cbCentralManager.cancelPeripheralConnection(connectedPeripheral!.cbPeripheral)
+            for peripheral in connectedPeripherals {
+                cbCentralManager.cancelPeripheralConnection(peripheral.cbPeripheral)
+            }
         }
     }
 
@@ -377,8 +391,10 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
             connectionObserver.bluetoothAvailable(cbCentralManager.state == .poweredOn)
         }
 
-        if let connectedPeripheral = connectedPeripheral, !isDisconnecting {
-            connectionObserver.connected(to: connectedPeripheral.identifier)
+        if (!isDisconnecting && !isConnecting ) {
+            for connectedPeripheral in connectedPeripherals {
+                connectionObserver.connected(to: connectedPeripheral.identifier)
+            }
         }
     }
 
@@ -572,7 +588,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - immediate: If true, the disconnect will not be enqueued and will cancel everything in the queue immediately then disconnect. If false, the disconnect will wait until everything in the queue is finished.
         - completion: Called when the disconnect request is fully completed.
     */
-    public func disconnect(immediate: Bool = false, completion: ((DisconnectionResult) -> Void)? = nil) {
+    public func disconnect(_ peripheralIdentifier: PeripheralIdentifier, immediate: Bool = false, completion: ((DisconnectionResult) -> Void)? = nil) {
         Dispatch.dispatchPrecondition(condition: .onQueue(.main))
 
         if isRunningBackgroundTask {
@@ -595,20 +611,35 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
                 isDisconnecting = true
                 cancelEverything(error: BluejayError.explicitDisconnect)
             } else {
-                if let peripheral = connectingPeripheral?.cbPeripheral ?? connectedPeripheral?.cbPeripheral {
-                    queue.add(Disconnection(peripheral: peripheral, manager: cbCentralManager, callback: completion))
+                if let cbPeripheral = cbCentralManager.retrievePeripherals(withIdentifiers: [peripheralIdentifier.uuid]).first {
+                    queue.add(Disconnection(peripheral: cbPeripheral, manager: cbCentralManager, callback: completion))
                 } else {
-                    debugLog("Cannot disconnect: there is no connected nor connecting peripheral.")
+                    debugLog("Cannot disconnect: there is no connected nor connecting peripheral_A.")
                     completion?(.failure(BluejayError.notConnected))
                 }
             }
         } else {
-            debugLog("Cannot disconnect: there is no connected nor connecting peripheral.")
+            debugLog("Cannot disconnect: there is no connected nor connecting peripheral_B.")
             isDisconnecting = false
             completion?(.failure(BluejayError.notConnected))
         }
     }
-
+    
+    // MARK: - Bonding
+    
+    /**
+     Remove the device from the list of bonded devices. This method is only called after a successful disconnection (whether in the current or a previous runtime)
+     
+     - Parameters:
+        - peripheralIdentifier: The peripheral to forget
+     */
+    
+    public func didForget(_ peripheralIdentifier: PeripheralIdentifier) {
+        for observer in connectionObservers {
+            observer.weakReference?.unpaired(from: peripheralIdentifier)
+        }
+    }
+    
     // MARK: - Actions
 
     /**
@@ -618,19 +649,17 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - characteristicIdentifier: The characteristic to read from.
         - completion: Called with the result of the attempt to read from the specified characteristic.
     */
-    public func read<R: Receivable>(from characteristicIdentifier: CharacteristicIdentifier, completion: @escaping (ReadResult<R>) -> Void) {
+    public func read<R: Receivable>(from peripheral: PeripheralIdentifier, from characteristicIdentifier: CharacteristicIdentifier, completion: @escaping (ReadResult<R>) -> Void) {
         Dispatch.dispatchPrecondition(condition: .onQueue(.main))
 
         if isRunningBackgroundTask {
             completion(.failure(BluejayError.backgroundTaskRunning))
             return
         }
-
-        if let peripheral = connectedPeripheral {
-            peripheral.read(from: characteristicIdentifier, completion: completion)
-        } else {
-            debugLog("Cannot request read on \(characteristicIdentifier.description): \(BluejayError.notConnected.localizedDescription)")
-            completion(.failure(BluejayError.notConnected))
+        
+        let actionPeripheral = peripheralForIdentifier(forIdentifier: peripheral)
+        if actionPeripheral != nil {
+            actionPeripheral!.read(from: characteristicIdentifier, completion: completion)
         }
     }
 
@@ -643,6 +672,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - completion: Called with the result of the attempt to write to the specified characteristic.
     */
     public func write<S: Sendable>(
+        to peripheral: PeripheralIdentifier,
         to characteristicIdentifier: CharacteristicIdentifier,
         value: S,
         type: CBCharacteristicWriteType = .withResponse,
@@ -653,12 +683,10 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
             completion(.failure(BluejayError.backgroundTaskRunning))
             return
         }
-
-        if let peripheral = connectedPeripheral {
-            peripheral.write(to: characteristicIdentifier, value: value, type: type, completion: completion)
-        } else {
-            debugLog("Cannot request write on \(characteristicIdentifier.description): \(BluejayError.notConnected.localizedDescription)")
-            completion(.failure(BluejayError.notConnected))
+        
+        let actionPeripheral = peripheralForIdentifier(forIdentifier: peripheral)
+        if actionPeripheral != nil {
+            actionPeripheral!.write(to: characteristicIdentifier, value: value, type: type, completion: completion)
         }
     }
 
@@ -670,6 +698,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - completion: Called with the result of the attempt to listen for notifications on the specified characteristic.
      */
     public func listen<R: Receivable>(
+        to peripheral: PeripheralIdentifier,
         to characteristicIdentifier: CharacteristicIdentifier,
         multipleListenOption option: MultipleListenOption = .trap,
         completion: @escaping (ReadResult<R>) -> Void) {
@@ -679,12 +708,10 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
             completion(.failure(BluejayError.backgroundTaskRunning))
             return
         }
-
-        if let peripheral = connectedPeripheral {
-            peripheral.listen(to: characteristicIdentifier, multipleListenOption: option, completion: completion)
-        } else {
-            debugLog("Cannot request listen on \(characteristicIdentifier.description): \(BluejayError.notConnected.localizedDescription)")
-            completion(.failure(BluejayError.notConnected))
+        
+        let actionPeripheral = peripheralForIdentifier(forIdentifier: peripheral)
+        if actionPeripheral != nil {
+            actionPeripheral!.listen(to: characteristicIdentifier, multipleListenOption: option, completion: completion)
         }
     }
 
@@ -695,20 +722,15 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - characteristicIdentifier: The characteristic to stop listening to.
         - completion: Called with the result of the attempt to stop listening to the specified characteristic.
     */
-    public func endListen(to characteristicIdentifier: CharacteristicIdentifier, completion: ((WriteResult) -> Void)? = nil) {
+    public func endListen(to peripheral: Peripheral, to characteristicIdentifier: CharacteristicIdentifier, completion: ((WriteResult) -> Void)? = nil) {
         Dispatch.dispatchPrecondition(condition: .onQueue(.main))
 
         if isRunningBackgroundTask {
             completion?(.failure(BluejayError.backgroundTaskRunning))
             return
         }
-
-        if let peripheral = connectedPeripheral {
-            peripheral.endListen(to: characteristicIdentifier, error: nil, completion: completion)
-        } else {
-            debugLog("Cannot request end listen on \(characteristicIdentifier.description): \(BluejayError.notConnected.localizedDescription)")
-            completion?(.failure(BluejayError.notConnected))
-        }
+        
+        peripheral.endListen(to: characteristicIdentifier, error: nil, completion: completion)
     }
 
     /**
@@ -717,11 +739,8 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
      - Parameters:
        - to: The characteristic we want to check.
      */
-    public func isListening(to characteristicIdentifier: CharacteristicIdentifier) throws -> Bool {
-        guard let periph = connectedPeripheral else {
-            throw BluejayError.notConnected
-        }
-        return periph.isListening(to: characteristicIdentifier)
+    public func isListening(to peripheral: Peripheral, to characteristicIdentifier: CharacteristicIdentifier) throws -> Bool {
+        return peripheral.isListening(to: characteristicIdentifier)
     }
 
     /**
@@ -729,14 +748,14 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
      - Warning: Will throw if called while a Bluejay background task is running, or if not connected.
      */
-    public func readRSSI() throws {
+    public func readRSSI(of peripheral: Peripheral) throws {
         Dispatch.dispatchPrecondition(condition: .onQueue(.main))
 
         if isRunningBackgroundTask {
             throw BluejayError.backgroundTaskRunning
         }
 
-        if let peripheral = connectedPeripheral {
+        if connectedPeripherals.contains(peripheral) {
             peripheral.readRSSI()
         } else {
             throw BluejayError.notConnected
@@ -755,6 +774,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - completionOnMainThread: A closure called on the main thread when the background task has either completed or failed.
      */
     public func run(
+        to peripheral: Peripheral,
         backgroundTask: @escaping (SynchronizedPeripheral) throws -> Void,
         completionOnMainThread: @escaping (RunResult<Void>) -> Void) {
         if isRunningBackgroundTask {
@@ -769,7 +789,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
         isRunningBackgroundTask = true
 
-        if let peripheral = connectedPeripheral {
+        if connectedPeripherals.contains(peripheral) {
             DispatchQueue.global().async { [weak self] in
                 guard let weakSelf = self else {
                     return
@@ -815,6 +835,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - completionOnMainThread: A closure called on the main thread when the background task has either completed or failed.
      */
     public func run<Result>(
+        to peripheral: Peripheral,
         backgroundTask: @escaping (SynchronizedPeripheral) throws -> Result,
         completionOnMainThread: @escaping (RunResult<Result>) -> Void) {
         if isRunningBackgroundTask {
@@ -829,7 +850,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
         isRunningBackgroundTask = true
 
-        if let peripheral = connectedPeripheral {
+        if connectedPeripherals.contains(peripheral) {
             DispatchQueue.global().async { [weak self] in
                 guard let weakSelf = self else {
                     return
@@ -876,6 +897,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - completionOnMainThread: A closure called on the main thread when the background task has either completed or failed.
      */
     public func run<UserData, Result>(
+        to peripheral: Peripheral,
         userData: UserData,
         backgroundTask: @escaping (SynchronizedPeripheral, UserData) throws -> Result,
         completionOnMainThread: @escaping (RunResult<Result>) -> Void) {
@@ -891,7 +913,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
         isRunningBackgroundTask = true
 
-        if let peripheral = connectedPeripheral {
+        if connectedPeripherals.contains(peripheral) {
             DispatchQueue.global().async { [weak self] in
                 guard let weakSelf = self else {
                     return
@@ -970,7 +992,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
 
     private func clearAllNonRestorationPeripherals() {
         connectingPeripheral = nil
-        connectedPeripheral = nil
+        connectedPeripherals = []
 
         debugLog("Cleared all non restoration peripheral references.")
     }
@@ -1032,14 +1054,18 @@ extension Bluejay: CBCentralManagerDelegate {
      *
      * - Parameter peripheral: the connected peripheral restored.
      */
-    private func restoreConnected(peripheral: Peripheral) {
+    private func restoreConnected(peripherals: [Peripheral]) {
+        
+        precondition(peripherals.count > 0, "No peripherals to restore here")
         guard let backgroundRestorer = self.backgroundRestorer else {
             fatalError("No background restorer found when restoring a connected peripheral.")
         }
 
-        debugLog("Did restore connection to peripheral: \(peripheral.identifier.description)")
-
-        let backgroundRestoreCompletion = backgroundRestorer.didRestoreConnection(to: peripheral.identifier)
+        for peripheral in peripherals {
+            debugLog("Did restore connection to peripheral: \(peripheral.identifier.description)")
+        }
+        
+        let backgroundRestoreCompletion = backgroundRestorer.didRestoreConnection(to: peripherals.first!.identifier)
 
         switch backgroundRestoreCompletion {
         case .callback(let userCallback):
@@ -1049,7 +1075,9 @@ extension Bluejay: CBCentralManagerDelegate {
         }
 
         for observer in connectionObservers {
-            observer.weakReference?.connected(to: connectedPeripheral!.identifier)
+            for peripheral in peripherals {
+                observer.weakReference?.connected(to: peripheral.identifier)
+            }
         }
 
         endStartupBackgroundTask()
@@ -1131,8 +1159,8 @@ extension Bluejay: CBCentralManagerDelegate {
 
                 if let connectingPeripheralAtRestoration = connectingPeripheralAtRestoration {
                     restoreConnecting(peripheral: connectingPeripheralAtRestoration)
-                } else if let connectedPeripheral = connectedPeripheral {
-                    restoreConnected(peripheral: connectedPeripheral)
+                } else if !connectedPeripherals.isEmpty {
+                    restoreConnected(peripherals: connectedPeripherals)
                 } else if let disconnectingPeripheralAtRestoration = disconnectingPeripheralAtRestoration {
                     restoreDisconnecting(peripheral: disconnectingPeripheralAtRestoration)
                 } else if let disconnectedPeripheralAtRestoration = disconnectedPeripheralAtRestoration {
@@ -1168,37 +1196,39 @@ extension Bluejay: CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         debugLog("Central manager will restore state.")
 
-        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral], let cbPeripheral = peripherals.first else {
+        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]
+        else {
             debugLog("No peripherals found during state restoration.")
             endStartupBackgroundTask()
             return
         }
+        
+        for cbPeripheral in peripherals {
+            let peripheral = Peripheral(delegate: self, cbPeripheral: cbPeripheral, bluejay: self)
+            debugLog("Peripheral state to restore: \(cbPeripheral.state.string())")
 
-        let peripheral = Peripheral(delegate: self, cbPeripheral: cbPeripheral, bluejay: self)
-        precondition(peripherals.count == 1, "Invalid number of peripheral to restore.")
-        debugLog("Peripheral state to restore: \(cbPeripheral.state.string())")
+            isRestoring = true
 
-        isRestoring = true
-
-        switch cbPeripheral.state {
-        case .connecting:
-            precondition(connectedPeripheral == nil,
-                         "Connected peripheral is not nil during willRestoreState for state: connecting.")
-            connectingPeripheralAtRestoration = peripheral
-        case .connected:
-            precondition(connectingPeripheral == nil,
-                         "Connecting peripheral is not nil during willRestoreState for state: connected.")
-            connectedPeripheral = peripheral
-        case .disconnecting:
-            precondition(connectingPeripheral == nil,
-                         "Connecting peripheral is not nil during willRestoreState for state: disconnecting.")
-            disconnectingPeripheralAtRestoration = peripheral
-        case .disconnected:
-            precondition(connectingPeripheral == nil && connectedPeripheral == nil,
-                         "Connecting and connected peripherals are not nil during willRestoreState for state: disconnected.")
-            disconnectedPeripheralAtRestoration = peripheral
-        @unknown default:
-            debugLog("New system level CBCentralManager state added.")
+            switch cbPeripheral.state {
+            case .connecting:
+                precondition(connectedPeripherals.isEmpty == true,
+                             "Connected peripheral is not nil during willRestoreState for state: connecting.")
+                connectingPeripheralAtRestoration = peripheral //MARK: MAKE THIS A LIST
+            case .connected:
+                precondition(connectingPeripheral == nil,
+                             "Connecting peripheral is not nil during willRestoreState for state: connected.")
+                connectedPeripherals.append(peripheral)
+            case .disconnecting:
+                precondition(connectingPeripheral == nil,
+                             "Connecting peripheral is not nil during willRestoreState for state: disconnecting.")
+                disconnectingPeripheralAtRestoration = peripheral   //MARK: MAKE THIS A LIST
+            case .disconnected:
+                precondition(connectingPeripheral == nil && connectedPeripherals.isEmpty,
+                             "Connecting and connected peripherals are not nil during willRestoreState for state: disconnected.")
+                disconnectedPeripheralAtRestoration = peripheral    //MARK: MAKE THIS A LIST
+            @unknown default:
+                debugLog("New system level CBCentralManager state added.")
+            }
         }
     }
 
@@ -1210,19 +1240,19 @@ extension Bluejay: CBCentralManagerDelegate {
 
         connectingCallback = nil
 
-        connectedPeripheral = connectingPeripheral
-        connectingPeripheral = nil
+        connectedPeripherals.append(connectingPeripheral!)      //MARK: CLEAN THIS UP
 
-        precondition(connectedPeripheral != nil, "Connected peripheral is assigned a nil value despite Bluejay has successfully finished a connection.")
-
+        precondition(connectedPeripherals.last != nil, "Connected peripheral is assigned a nil value despite Bluejay has successfully finished a connection.")
+        
         shouldAutoReconnect = true
         debugLog("Should auto-reconnect: \(shouldAutoReconnect)")
 
-        queue.process(event: .didConnectPeripheral(connectedPeripheral!), error: nil)
-
+        queue.process(event: .didConnectPeripheral(connectedPeripherals.last!), error: nil)
         for observer in connectionObservers {
-            observer.weakReference?.connected(to: connectedPeripheral!.identifier)
+            observer.weakReference?.connected(to: connectingPeripheral!.identifier)
         }
+        
+        connectingPeripheral = nil
     }
 
     /**
@@ -1238,9 +1268,19 @@ extension Bluejay: CBCentralManagerDelegate {
         } else {
             debugLog("Central manager did disconnect from \(peripheralString) without errors.")
         }
+        
+        var prevConnectedPeripheral: Peripheral?
+        
+        for connectedperipheral in connectedPeripherals {
+            if connectedperipheral.cbPeripheral.identifier == peripheral.identifier {
+                prevConnectedPeripheral = connectedperipheral
+            }
+        }
+        
+        connectedPeripherals = connectedPeripherals.filter {$0.identifier != prevConnectedPeripheral?.identifier}
 
         guard let disconnectedPeripheral =
-            connectedPeripheral ??
+            prevConnectedPeripheral ??
             connectingPeripheral ??
             connectingPeripheralAtRestoration ??
             disconnectingPeripheralAtRestoration ??
@@ -1407,8 +1447,8 @@ extension Bluejay: CBCentralManagerDelegate {
      This should only be called when the current operation in the queue is a `Scan` task.
     */
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        // let peripheralString = advertisementData[CBAdvertisementDataLocalNameKey] ?? peripheral.identifier.uuidString
-        // log("Did discover: \(peripheralString)")
+        
+        debugLog("Did discover: \(peripheral.identifier.uuidString)")
 
         queue.process(event: .didDiscoverPeripheral(peripheral, advertisementData, RSSI), error: nil)
     }
@@ -1459,7 +1499,7 @@ extension Bluejay: PeripheralDelegate {
             debugLog("Promised restoration for listen on \(characteristic.description) for \(peripheral.identifier.description)")
         case .stopListen:
             debugLog("End listen requested for listen on \(characteristic.description) for \(peripheral.identifier.description)")
-            endListen(to: characteristic)
+            endListen(to: peripheral, to: characteristic)
         }
     }
 
