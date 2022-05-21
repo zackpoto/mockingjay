@@ -481,7 +481,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
     public func unregisterDisconnectHandler() {
         disconnectHandler = nil
     }
-    
+
     // MARK: - DFU
 
     /**
@@ -493,11 +493,17 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
         - progress: Called whenever a firmware update progress update is received.
      */
     public func startFirmwareUpdate (
-        peripheral: CBPeripheral,
+        peripheralIdentifier: PeripheralIdentifier,
         progress: @escaping (FirmwareUpdateProgress) -> Void,
         stopped: @escaping (FirmwareUpdateProgress, Error?) -> Void
-        ) {
+        )
+    {
         Dispatch.dispatchPrecondition(condition: .onQueue(.main))
+
+        guard let peripheral = peripheralForIdentifier(forIdentifier: peripheralIdentifier)?.cbPeripheral else {
+            print("Peripheral is not connected")
+            return
+        }
 
         if isRunningBackgroundTask {
             stopped(FirmwareUpdateProgress(), BluejayError.backgroundTaskRunning)
