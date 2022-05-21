@@ -138,6 +138,7 @@ class Scan: Queueable {
                 peripheralIdentifier: peripheralIdentifier,
                 advertisementPacket: advertisementData,
                 rssi: rssi.intValue)
+
             
 //            if let manufacturerData = newDiscovery.advertisementPacket["kCBAdvDataManufacturerData"] as? Data {
 //                assert(manufacturerData.count >= 2)
@@ -171,7 +172,7 @@ class Scan: Queueable {
                 existingDiscovery.peripheralIdentifier == peripheralIdentifier
             }) {
                 let existingDiscovery = discoveries[indexOfExistingDiscovery]
-                
+
                 // Throttle discovery by ignoring discovery if the change of RSSI is insignificant.
                 if abs(existingDiscovery.rssi - rssi.intValue) < throttleRSSIDelta {
                     return

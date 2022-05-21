@@ -23,6 +23,9 @@ class Queue {
 
     /// Helps determine whether a scan is running or not.
     private var scan: Scan?
+    
+    /// Helps determine whether a DFU is running or not.
+    private var firmwareUpdate: FirmwareUpdate?
 
     /// The array of Bluetooth operations added.
     private var queue = [Queueable]()
@@ -89,6 +92,7 @@ class Queue {
         } else if queueable is Connection {
             if bluejay.isConnecting || bluejay.isConnected || multipleConnectionsQueued {
                 queueable.fail(BluejayError.multipleConnectNotSupported)
+                // MARK: Change this
                 return
             }
 
@@ -96,6 +100,12 @@ class Queue {
             if isScanning {
                 stopScanning()
                 return
+            }
+        } else if queueable is FirmwareUpdate {
+            if firmwareUpdate == nil {
+                firmwareUpdate = queueable as? FirmwareUpdate
+            } else {
+                queueable.fail(BluejayError.multipleScanNotSupported)
             }
         }
 
@@ -114,6 +124,10 @@ class Queue {
 
         if isScanning {
             stopScanning(error: error)
+        }
+        
+        if isUpdatingFirmware {
+            stopFirmwareUpdate(error: error)
         }
 
         for queueable in queue where !queueable.state.isFinished {
@@ -151,6 +165,23 @@ class Queue {
         }
 
         self.scan = nil
+    }
+    
+    func stopFirmwareUpdate(error: Error? = nil) {
+        guard let firmwareUpdate = firmwareUpdate else {
+            debugLog("Stop scanning requested but no scan is found in the queue.")
+            return
+        }
+
+        if let error = error {
+            debugLog("Stop firmware update requested with error: \(error.localizedDescription)")
+            firmwareUpdate.fail(error)
+        } else {
+            debugLog("Stop firmware update requested.")
+            firmwareUpdate.stop()
+        }
+
+        self.firmwareUpdate = nil
     }
 
     // MARK: - Queue
@@ -234,6 +265,10 @@ class Queue {
 
     var isScanning: Bool {
         return scan != nil
+    }
+    
+    var isUpdatingFirmware: Bool {
+        return firmwareUpdate != nil
     }
 
     func isReading(characteristic: CharacteristicIdentifier) -> Bool {

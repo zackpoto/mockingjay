@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import CoreBluetooth
+import iOSDFULibrary
 
 /**
  Bluejay is a simple wrapper around CoreBluetooth that focuses on making a common usage case as straight forward as possible: a single connected peripheral that the user is interacting with regularly (think most personal electronics devices that have an associated iOS app: fitness trackers, guitar amps, etc).
@@ -137,7 +138,7 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
     public var isConnected: Bool {
         return !connectedPeripherals.isEmpty
     }
-    
+
     /// Allows checking whether Bluejay is currently connected to a specific peripheral.
     public func isConnectedTo(toPeripheral withID: UUID) -> Bool {
         for peripheral in connectedPeripherals {
@@ -479,6 +480,51 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
     */
     public func unregisterDisconnectHandler() {
         disconnectHandler = nil
+    }
+    
+    // MARK: - DFU
+
+    /**
+     Description
+
+     - Warning: YO
+
+     - Parameters:
+        - progress: Called whenever a firmware update progress update is received.
+     */
+    public func startFirmwareUpdate (
+        peripheral: CBPeripheral,
+        progress: @escaping (FirmwareUpdateProgress) -> Void,
+        stopped: @escaping (FirmwareUpdateProgress, Error?) -> Void
+        ) {
+        Dispatch.dispatchPrecondition(condition: .onQueue(.main))
+
+        if isRunningBackgroundTask {
+            stopped(FirmwareUpdateProgress(), BluejayError.backgroundTaskRunning)
+            return
+        }
+
+        let firmwareUpdateOperation = FirmwareUpdate(
+            peripheral: peripheral,
+            progress: progress,
+            stopped: stopped,
+            delegate: self,
+            manager: cbCentralManager
+        )
+
+        queue.add(firmwareUpdateOperation)
+    }
+
+    /// Description
+    private func stopFirmwareUpdate() {
+        Dispatch.dispatchPrecondition(condition: .onQueue(.main))
+
+        if isRunningBackgroundTask {
+            debugLog("Error: You cannot stop a update while a background task is still running.")
+            return
+        }
+
+        queue.stopFirmwareUpdate()
     }
 
     // MARK: - Scanning
@@ -1213,7 +1259,7 @@ extension Bluejay: CBCentralManagerDelegate {
             case .connecting:
                 precondition(connectedPeripherals.isEmpty == true,
                              "Connected peripheral is not nil during willRestoreState for state: connecting.")
-                connectingPeripheralAtRestoration = peripheral //MARK: MAKE THIS A LIST
+                connectingPeripheralAtRestoration = peripheral // MARK: MAKE THIS A LIST
             case .connected:
                 precondition(connectingPeripheral == nil,
                              "Connecting peripheral is not nil during willRestoreState for state: connected.")
@@ -1221,11 +1267,11 @@ extension Bluejay: CBCentralManagerDelegate {
             case .disconnecting:
                 precondition(connectingPeripheral == nil,
                              "Connecting peripheral is not nil during willRestoreState for state: disconnecting.")
-                disconnectingPeripheralAtRestoration = peripheral   //MARK: MAKE THIS A LIST
+                disconnectingPeripheralAtRestoration = peripheral   // MARK: MAKE THIS A LIST
             case .disconnected:
                 precondition(connectingPeripheral == nil && connectedPeripherals.isEmpty,
                              "Connecting and connected peripherals are not nil during willRestoreState for state: disconnected.")
-                disconnectedPeripheralAtRestoration = peripheral    //MARK: MAKE THIS A LIST
+                disconnectedPeripheralAtRestoration = peripheral    // MARK: MAKE THIS A LIST
             @unknown default:
                 debugLog("New system level CBCentralManager state added.")
             }
@@ -1517,6 +1563,33 @@ extension Bluejay: PeripheralDelegate {
             )
         }
     }
+}
+
+// MARK: - DFUProgressDelegate
+
+extension Bluejay: DFUProgressDelegate {
+    
+    public func dfuProgressDidChange(for part: Int, outOf totalParts: Int, to progress: Int, currentSpeedBytesPerSecond: Double, avgSpeedBytesPerSecond: Double) {
+        
+        let progress = FirmwareUpdateProgress(part: part, total: totalParts, prog: progress, currentSpeed: currentSpeedBytesPerSecond, avgSpeed: avgSpeedBytesPerSecond)
+        
+        queue.process(event: .didUpdateDFUProgress(progress), error: nil)
+    }
+    
+}
+
+// MARK: - DFUServiceDelegate
+
+extension Bluejay: DFUServiceDelegate {
+    
+    public func dfuStateDidChange(to state: DFUState) {
+        queue.process(event: .didUpdateDFUState(state), error: nil)
+    }
+    
+    public func dfuError(_ error: DFUError, didOccurWithMessage message: String) {
+        print(message)
+    }
+    
 }
 
 // Helper function inserted by Swift 4.2 migrator.

@@ -8,6 +8,7 @@
 
 import CoreBluetooth
 import Foundation
+import iOSDFULibrary
 
 /// The available events a queue can and should respond to.
 enum Event {
@@ -19,4 +20,8 @@ enum Event {
     case didReadCharacteristic(CBCharacteristic, Data)
     case didWriteCharacteristic(CBCharacteristic)
     case didUpdateCharacteristicNotificationState(CBCharacteristic)
+    // DFU
+    case didUpdateDFUProgress(FirmwareUpdateProgress)
+    case didUpdateDFUState(DFUState)
+    case didErrorDFU(DFUError, String)
 }
