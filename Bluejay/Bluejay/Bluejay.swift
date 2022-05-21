@@ -1056,7 +1056,7 @@ extension Bluejay: CBCentralManagerDelegate {
      */
     private func restoreConnected(peripherals: [Peripheral]) {
         
-        precondition(peripherals.count > 0, "No peripherals to restore here")
+        precondition(!peripherals.isEmpty, "No peripherals to restore here")
         guard let backgroundRestorer = self.backgroundRestorer else {
             fatalError("No background restorer found when restoring a connected peripheral.")
         }
