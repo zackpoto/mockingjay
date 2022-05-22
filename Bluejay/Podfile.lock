@@ -1,7 +1,7 @@
 PODS:
   - iOSDFULibrary (4.11.1):
     - ZIPFoundation (= 0.9.11)
-  - SwiftLint (0.31.0)
+  - SwiftLint (0.47.1)
   - ZIPFoundation (0.9.11)
 
 DEPENDENCIES:
@@ -16,9 +16,9 @@ SPEC REPOS:
 
 SPEC CHECKSUMS:
   iOSDFULibrary: 3500ac00451aa7d8ec48a752e91099669a2c1d27
-  SwiftLint: 7a0227733d786395817373b2d0ca799fd0093ff3
+  SwiftLint: f80f1be7fa96d30e0aa68e58d45d4ea1ccaac519
   ZIPFoundation: b1f0de4eed33e74a676f76e12559ab6b75990197
 
-PODFILE CHECKSUM: 92869cc05183b00ea2ffcce1e4861deaa4b55bd5
+PODFILE CHECKSUM: c7763dd631b731f7b665dba559f9c48215b46e68
 
 COCOAPODS: 1.10.0
