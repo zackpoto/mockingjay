@@ -16,7 +16,6 @@ Pod::Spec.new do |spec|
   #s.source_files = 'iOSDFULibrary/Classes/**/*'
   #s.dependency 'ZIPFoundation', '= 0.9.11'
 
-  spec.source_files = 'Bluejay/Bluejay/*'
   spec.dependency 'iOSDFULibrary', '= 4.11.1'
   spec.dependency 'ZIPFoundation', '= 0.9.11'
 end
