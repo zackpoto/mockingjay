@@ -392,11 +392,14 @@ public class Bluejay: NSObject { //swiftlint:disable:this type_body_length
             connectionObserver.bluetoothAvailable(cbCentralManager.state == .poweredOn)
         }
 
+        print("IM HERER FOR NOW")
         if (!isDisconnecting && !isConnecting ) {
+            print("IM HERER FOR NOW12")
             for connectedPeripheral in connectedPeripherals {
                 connectionObserver.connected(to: connectedPeripheral.identifier)
             }
         }
+        print("Disconnecting: \(isDisconnecting), Connecting: \(isConnecting)")
     }
 
     /**
@@ -1290,21 +1293,22 @@ extension Bluejay: CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         debugLog("Central manager did connect to: \(peripheral.name ?? peripheral.identifier.uuidString)")
 
-        connectingCallback = nil
+        if let newPeripheral = connectingPeripheral {
+            connectingCallback = nil
+            shouldAutoReconnect = true
+            debugLog("Should auto-reconnect: \(shouldAutoReconnect)")
 
-        connectedPeripherals.append(connectingPeripheral!)      //MARK: CLEAN THIS UP
+            connectedPeripherals.append(newPeripheral)
+            queue.process(event: .didConnectPeripheral(newPeripheral), error: nil)
+            connectingPeripheral = nil
 
-        precondition(connectedPeripherals.last != nil, "Connected peripheral is assigned a nil value despite Bluejay has successfully finished a connection.")
-        
-        shouldAutoReconnect = true
-        debugLog("Should auto-reconnect: \(shouldAutoReconnect)")
+            for observer in connectionObservers {
+                observer.weakReference?.connected(to: connectedPeripherals.last!.identifier)
+            }
 
-        queue.process(event: .didConnectPeripheral(connectedPeripherals.last!), error: nil)
-        for observer in connectionObservers {
-            observer.weakReference?.connected(to: connectingPeripheral!.identifier)
+        } else {
+            fatalError("Connected peripheral is assigned a nil value despite Bluejay has successfully finished a connection.")
         }
-        
-        connectingPeripheral = nil
     }
 
     /**
@@ -1364,7 +1368,7 @@ extension Bluejay: CBCentralManagerDelegate {
 
         var isExpectedDisconnect = false
 
-        if (!isDisconnecting && !queue.isRunningQueuedDisconnection) || wasRestoringConnectingPeripheral {
+        if (!isDisconnecting && !queue.isRunningQueuedDisconnection && !wasConnecting) || wasRestoringConnectingPeripheral {
             debugLog("The disconnect is unexpected.")
 
             isExpectedDisconnect = false
